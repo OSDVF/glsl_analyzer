@@ -3,8 +3,10 @@ const std = @import("std");
 pub const NAME = "glsl_analyzer";
 
 pub const Arguments = struct {
+    allow_reinit: bool = false,
     version: bool = false,
     channel: ChannelKind = .stdio,
+    scheme: []const u8 = "file://",
     client_pid: ?c_int = null,
     dev_mode: ?[]const u8 = null,
     parse_file: ?[]const u8 = null,
@@ -13,6 +15,7 @@ pub const Arguments = struct {
     pub const ChannelKind = union(enum) {
         stdio: void,
         socket: u16,
+        ws: u16,
     };
 
     const usage =
@@ -26,6 +29,9 @@ pub const Arguments = struct {
         \\ -h, --help               Print this message.
         \\     --stdio              Communicate over stdio. [default]
         \\ -p, --port <PORT>        Communicate over socket.
+        \\ -ws,--websocket <PORT>   Communicate over WebSocket.
+        \\ -s, --scheme <SCHEME>    Scheme to use for file URL parsing (default file://).
+        \\ -r, --allow-reinit       Allow reinitialization of the server. [default: false]
         \\     --dev-mode <PATH>    Enable development mode: redirects stderr to the given path.
         \\     --parse-file <PATH>  Parses the given file, prints diagnostics, then exits.
         \\     --print-ast          Prints the parse tree. Only valid with --parse-file.
@@ -102,6 +108,24 @@ pub const Arguments = struct {
                 const port = std.fmt.parseInt(u16, value, 10) catch
                     fail("{s}: not a valid port number: {s}", .{ option, value });
                 parsed.channel = .{ .socket = port };
+                continue;
+            }
+
+            if (isAny(option, &.{ "--websocket", "-ws" })) {
+                const value = value_parser.get("PORT");
+                const port = std.fmt.parseInt(u16, value, 10) catch
+                    fail("{s}: not a valid port number: {s}", .{ option, value });
+                parsed.channel = .{ .ws = port };
+                continue;
+            }
+
+            if (isAny(option, &.{ "--scheme", "-s" })) {
+                parsed.scheme = value_parser.get("SCHEME");
+                continue;
+            }
+
+            if (isAny(option, &.{ "--allow-reinit", "-r" })) {
+                parsed.allow_reinit = true;
                 continue;
             }
 

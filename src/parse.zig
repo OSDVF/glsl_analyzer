@@ -6,6 +6,8 @@ pub const ParseOptions = struct {
     /// Append any ignored tokens (comments or preprocessor directives) to this list.
     ignored: ?*std.ArrayList(Span) = null,
     diagnostics: ?*std.ArrayList(Diagnostic) = null,
+    /// A map of function names to indexes to nodes in the tree where they are called.
+    calls: ?*std.StringHashMap(std.ArrayList(u32)) = null,
 };
 
 pub fn parse(
@@ -157,6 +159,7 @@ pub const Tag = enum(u8) {
     prefix,
     postfix,
     call,
+    arguments_list,
     argument,
     selection,
 
@@ -302,6 +305,7 @@ pub const Tree = struct {
         source: []const u8,
     };
 
+    /// Output the AST in human-readable format
     fn formatWithSource(
         data: WithSource,
         comptime fmt: []const u8,
@@ -378,6 +382,13 @@ pub const Diagnostic = struct {
 
     pub fn position(self: @This(), source: []const u8) lsp.Position {
         return util.positionFromUtf8(source, self.span.start);
+    }
+
+    pub fn range(self: @This(), source: []const u8) lsp.Range {
+        return .{
+            .start = self.position(source),
+            .end = util.positionFromUtf8(source, self.span.end),
+        };
     }
 };
 
@@ -500,6 +511,7 @@ pub const Parser = struct {
         return found;
     }
 
+    /// Expects a token and eats it. If the token is not found, emits an error.
     fn expect(self: *@This(), comptime expected: Tag) void {
         if (!self.eat(expected)) {
             self.emitError("expected " ++ @tagName(expected));
@@ -567,6 +579,7 @@ pub const Parser = struct {
         };
     }
 
+    /// Appends a node to the parse tree
     fn close(self: *@This(), mark: Mark, comptime tag: Tag) void {
         comptime std.debug.assert(tag.isSyntax());
 
@@ -1111,13 +1124,16 @@ const expression_recovery = TokenSet.initMany(&.{ .@";", .@"{", .@"}" });
 
 fn postfixExpressionOpt(p: *Parser) bool {
     const m = p.open();
+    var fn_name_start = p.last_end;
     if (!primaryExpressionOpt(p)) return false;
 
     while (true) {
         switch (p.peek()) {
             .@"[" => arraySpecifier(p, m),
             .@"(" => {
+                const fn_name_end = p.last_end;
                 p.advance();
+                const m_args_list = p.open();
                 while (!p.eof() and !p.at(.@")")) {
                     if (p.atAny(expression_first)) {
                         const m_arg = p.open();
@@ -1130,8 +1146,22 @@ fn postfixExpressionOpt(p: *Parser) bool {
                         p.advanceWithError("expected an argument");
                     }
                 }
+                p.close(m_args_list, .arguments_list);
                 p.expect(.@")");
                 p.close(m, .call);
+
+                // Store function call location
+                if (p.options.calls) |calls| {
+                    while (fn_name_start < fn_name_end and std.ascii.isWhitespace(p.tokenizer.source[fn_name_start])) fn_name_start += 1;
+                    const fn_name = p.tokenizer.source[fn_name_start..fn_name_end];
+                    if (calls.getPtr(fn_name)) |the_func_calls| {
+                        p.deferError(the_func_calls.append(@intCast(p.tree.nodes.len))); // The next node will be the .call node
+                    } else {
+                        var new_list = std.ArrayList(u32).init(p.allocator);
+                        p.deferError(new_list.append(@intCast(p.tree.nodes.len)));
+                        p.deferError(calls.put(fn_name, new_list));
+                    }
+                }
             },
             .@"++", .@"--" => {
                 p.advance();
@@ -1626,7 +1656,7 @@ fn stripComment(text: []const u8, start: u32) u32 {
     return i;
 }
 
-fn stripPrefix(text: []const u8, prefix: []const u8) ?[]const u8 {
+pub fn stripPrefix(text: []const u8, prefix: []const u8) ?[]const u8 {
     return if (std.mem.startsWith(u8, text, prefix)) text[prefix.len..] else null;
 }
 
@@ -1635,6 +1665,7 @@ pub const Directive = union(enum) {
     include: struct { path: Span },
     version: struct { number: Span },
     extension: struct { name: Span },
+    pragma: struct { name: Span },
 };
 
 pub fn parsePreprocessorDirective(line: []const u8) ?Directive {
@@ -1687,6 +1718,13 @@ pub fn parsePreprocessorDirective(line: []const u8) ?Directive {
         const number_end = skipIdentifier(i, line);
         if (number_start == number_end) return null;
         return .{ .version = .{ .number = .{ .start = number_start, .end = number_end } } };
+    }
+
+    if (std.mem.eql(u8, kind, "pragma")) {
+        const name_start = i;
+        const name_end = skipIdentifier(i, line);
+        if (name_start == name_end) return null;
+        return .{ .pragma = .{ .name = .{ .start = name_start, .end = name_end } } };
     }
 
     return null;

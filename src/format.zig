@@ -7,6 +7,7 @@ pub const FormatOptions = struct {
     single_line: bool = false,
 };
 
+/// Format as user-friendly GLSL code
 pub fn format(
     tree: parse.Tree,
     source: []const u8,
@@ -222,7 +223,7 @@ fn formatNode(tree: parse.Tree, current: usize, writer: anytype) !void {
             }
         },
 
-        .parameter_list, .call, .condition_list => {
+        .parameter_list, .arguments_list, .condition_list => {
             const children = tree.children(current);
             const start_line = writer.current_line;
 
@@ -316,6 +317,7 @@ fn formatNode(tree: parse.Tree, current: usize, writer: anytype) !void {
         .array_specifier,
         .selection,
         .parenthized,
+        .call,
         => {
             const children = tree.children(current);
             for (children.start..children.end) |child| {

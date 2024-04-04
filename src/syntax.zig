@@ -34,6 +34,13 @@ pub const FunctionDeclaration = Extractor(.function_declaration, struct {
     semi: Token(.@";"),
 });
 
+pub const ArgumentsList = ListExtractor(.arguments_list, Token(.@"("), Expression, Token(.@")"));
+
+pub const Call = Extractor(.call, struct {
+    identifier: Token(.identifier),
+    arguments: ArgumentsList,
+});
+
 pub const ParameterList = ListExtractor(.parameter_list, Token(.@"("), Parameter, Token(.@")"));
 
 pub const Parameter = Extractor(.parameter, struct {
@@ -189,6 +196,7 @@ pub const ExpressionUnion = union(enum) {
     number: Token(.number),
     array: ArraySpecifier(Expression),
     selection: Selection,
+    call: Call,
 };
 
 pub const Selection = Extractor(.selection, struct {

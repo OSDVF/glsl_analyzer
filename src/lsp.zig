@@ -16,6 +16,13 @@ pub const ClientCapabilities = struct {};
 pub const ServerCapabilities = struct {
     completionProvider: CompletionOptions = .{},
     textDocumentSync: TextDocumentSyncOptions = .{},
+    diagnosticProvider: DiagnosticOptions = .{},
+};
+
+pub const DiagnosticOptions = struct {
+    identifier: ?[]const u8 = null,
+    interFileDependencies: bool = false,
+    workspaceDiagnostics: bool = false,
 };
 
 pub const CompletionOptions = struct {
@@ -165,4 +172,35 @@ pub const MarkupContent = struct {
 pub const Location = struct {
     uri: []const u8,
     range: Range,
+};
+
+pub const CodeDescription = struct {
+    href: []const u8,
+};
+
+pub const Diagnostic = struct {
+    pub const Severity = enum(usize) {
+        @"error" = 1,
+        warning = 2,
+        information = 3,
+        hint = 4,
+    };
+    pub const Tag = enum(usize) {
+        unnecessary = 1,
+        deprecated = 2,
+    };
+    pub const RelatedInformation = struct {
+        location: Location,
+        message: []const u8,
+    };
+
+    range: Range,
+    message: []const u8,
+    severity: ?Severity = null,
+    code: ?usize = null,
+    codeDescription: ?CodeDescription = null,
+    source: ?[]const u8 = null,
+    tags: ?Tag = null,
+    relatedInformation: ?[]const RelatedInformation = null,
+    data: ?std.json.Value = null,
 };

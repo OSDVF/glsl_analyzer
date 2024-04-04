@@ -12,6 +12,8 @@ const Workspace = @import("Workspace.zig");
 const cli = @import("cli.zig");
 const analysis = @import("analysis.zig");
 const parse = @import("parse.zig");
+const websocket = @import("websocket");
+const net = std.net;
 
 pub const std_options = struct {
     pub const log_level = .debug;
@@ -39,11 +41,12 @@ pub fn main() !u8 {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 8 }){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
-    var static_arena = std.heap.ArenaAllocator.init(allocator);
-    defer static_arena.deinit();
+    var state: State = undefined;
+    return run(allocator, &state, try cli.Arguments.parse(allocator));
+}
 
-    const args = try cli.Arguments.parse(allocator);
-
+/// Modified to take arguments in a parameter instead of from the command line and to also support state injection
+pub fn run(allocator: std.mem.Allocator, state: *State, args: cli.Arguments) !u8 {
     if (args.dev_mode) |stderr_target| {
         if (enableDevelopmentMode(stderr_target)) {
             std.debug.print("\x1b[2J", .{}); // clear screen
@@ -63,7 +66,10 @@ pub fn main() !u8 {
         var diagnostics = std.ArrayList(parse.Diagnostic).init(allocator);
         defer diagnostics.deinit();
 
-        var tree = try parse.parse(allocator, source, .{ .diagnostics = &diagnostics });
+        var ignored = std.ArrayList(parse.Token).init(allocator);
+        defer ignored.deinit();
+
+        var tree = try parse.parse(allocator, source, .{ .diagnostics = &diagnostics, .ignored = &ignored });
         defer tree.deinit(allocator);
 
         if (args.print_ast) {
@@ -74,7 +80,7 @@ pub fn main() !u8 {
 
         if (diagnostics.items.len != 0) {
             for (diagnostics.items) |diagnostic| {
-                const position = diagnostic.position(source);
+                const position = diagnostic.span.position(source);
                 try std.io.getStdErr().writer().print(
                     "{s}:{}:{}: {s}\n",
                     .{ path, position.line + 1, position.character + 1, diagnostic.message },
@@ -104,82 +110,144 @@ pub fn main() !u8 {
             std.log.info("incoming connection from {}", .{connection.address});
             break :blk .{ .socket = connection.stream };
         },
+        .ws => |_| //TODO unify the logic for websocket and other channel types
+        if (build_options.has_websocket) .{ .websocket = null } else {
+            std.log.err("Websocket support not built in", .{});
+            return 2;
+        },
     };
     defer channel.close();
 
     var buffered_writer = std.io.bufferedWriter(channel.writer());
-    var state = State{
+    state.* = State{
         .allocator = allocator,
         .channel = &buffered_writer,
-        .workspace = try Workspace.init(allocator),
+        .workspace = try Workspace.init(allocator, args.scheme),
+        .allow_reinit = args.allow_reinit,
     };
     defer state.deinit();
+    if (channel != .websocket) {
+        var buffered_reader = std.io.bufferedReader(channel.reader());
+        const reader = buffered_reader.reader();
 
-    var buffered_reader = std.io.bufferedReader(channel.reader());
-    const reader = buffered_reader.reader();
+        var header_buffer: [1024]u8 = undefined;
+        var header_stream = std.io.fixedBufferStream(&header_buffer);
 
-    var header_buffer: [1024]u8 = undefined;
-    var header_stream = std.io.fixedBufferStream(&header_buffer);
+        var content_buffer = std.ArrayList(u8).init(allocator);
+        defer content_buffer.deinit();
 
-    var content_buffer = std.ArrayList(u8).init(allocator);
-    defer content_buffer.deinit();
+        var parse_arena = std.heap.ArenaAllocator.init(allocator);
+        defer parse_arena.deinit();
 
-    var parse_arena = std.heap.ArenaAllocator.init(allocator);
-    defer parse_arena.deinit();
+        const max_content_length = 4 << 20; // 4MB
 
-    const max_content_length = 4 << 20; // 4MB
+        outer: while (state.running) {
+            defer _ = parse_arena.reset(.retain_capacity);
 
-    outer: while (state.running) {
-        defer _ = parse_arena.reset(.retain_capacity);
-
-        // read headers
-        const headers = blk: {
-            header_stream.reset();
-            while (!std.mem.endsWith(u8, header_buffer[0..header_stream.pos], "\r\n\r\n")) {
-                reader.streamUntilDelimiter(header_stream.writer(), '\n', null) catch |err| {
-                    if (err == error.EndOfStream) break :outer;
-                    return err;
-                };
-                _ = try header_stream.write("\n");
-            }
-            break :blk try parseHeaders(header_buffer[0..header_stream.pos]);
-        };
-
-        // read content
-        const contents = blk: {
-            if (headers.content_length > max_content_length) return error.MessageTooLong;
-            try content_buffer.resize(headers.content_length);
-            const actual_length = try reader.readAll(content_buffer.items);
-            if (actual_length < headers.content_length) return error.UnexpectedEof;
-            break :blk content_buffer.items;
-        };
-
-        // parse message(s)
-        var message = blk: {
-            var scanner = std.json.Scanner.initCompleteInput(parse_arena.allocator(), contents);
-            defer scanner.deinit();
-
-            var diagnostics = std.json.Diagnostics{};
-            scanner.enableDiagnostics(&diagnostics);
-
-            break :blk std.json.parseFromTokenSourceLeaky(
-                rpc.Message(Request),
-                parse_arena.allocator(),
-                &scanner,
-                .{ .allocate = .alloc_if_needed },
-            ) catch |err| {
-                logJsonError(@errorName(err), diagnostics, contents);
-                state.fail(.null, .{ .code = .parse_error, .message = @errorName(err) }) catch {};
-                continue;
+            // read headers
+            const headers = blk: {
+                header_stream.reset();
+                while (!std.mem.endsWith(u8, header_buffer[0..header_stream.pos], "\r\n\r\n")) {
+                    reader.streamUntilDelimiter(header_stream.writer(), '\n', null) catch |err| {
+                        if (err == error.EndOfStream) break :outer;
+                        return err;
+                    };
+                    _ = try header_stream.write("\n");
+                }
+                break :blk try parseHeaders(header_buffer[0..header_stream.pos]);
             };
-        };
 
-        state.handleMessage(&message) catch |err| switch (err) {
-            error.Failure => continue,
-            else => return err,
-        };
+            // read content
+            const contents = blk: {
+                if (headers.content_length > max_content_length) return error.MessageTooLong;
+                try content_buffer.resize(headers.content_length);
+                const actual_length = try reader.readAll(content_buffer.items);
+                if (actual_length < headers.content_length) return error.UnexpectedEof;
+                break :blk content_buffer.items;
+            };
+
+            // parse message(s)
+            var message = blk: {
+                var scanner = std.json.Scanner.initCompleteInput(parse_arena.allocator(), contents);
+                defer scanner.deinit();
+
+                var diagnostics = std.json.Diagnostics{};
+                scanner.enableDiagnostics(&diagnostics);
+
+                break :blk std.json.parseFromTokenSourceLeaky(
+                    rpc.Message(Request),
+                    parse_arena.allocator(),
+                    &scanner,
+                    .{ .allocate = .alloc_if_needed },
+                ) catch |err| {
+                    logJsonError(@errorName(err), diagnostics, contents);
+                    state.fail(.null, .{ .code = .parse_error, .message = @errorName(err) }) catch {};
+                    continue;
+                };
+            };
+
+            state.handleMessage(&message) catch |err| switch (err) {
+                error.Failure => continue,
+                else => return err,
+            };
+        }
+    } else if (build_options.has_websocket) {
+        try websocket.listen(struct {
+            conn: *websocket.Conn,
+            parse_arena: std.heap.ArenaAllocator,
+            state: *State,
+
+            pub fn init(_: websocket.Handshake, conn: *websocket.Conn, context: struct { *State, *Channel }) !@This() {
+                context[1].websocket = conn;
+                return @This(){
+                    .conn = conn,
+                    .state = context[0],
+                    .parse_arena = std.heap.ArenaAllocator.init(context[0].allocator),
+                };
+            }
+
+            pub fn handle(self: *@This(), ws_message: websocket.Message) !void {
+                defer _ = self.parse_arena.reset(.retain_capacity);
+                if (self.state.running == false) return error.Closed;
+
+                // no headers, the length is already included in the websocket protocol
+
+                // parse message(s)
+                var message = blk: {
+                    var scanner = std.json.Scanner.initCompleteInput(self.parse_arena.allocator(), ws_message.data); //TODO fragmentation
+                    defer scanner.deinit();
+
+                    var diagnostics = std.json.Diagnostics{};
+                    scanner.enableDiagnostics(&diagnostics);
+
+                    break :blk std.json.parseFromTokenSourceLeaky(
+                        rpc.Message(Request),
+                        self.parse_arena.allocator(),
+                        &scanner,
+                        .{ .allocate = .alloc_if_needed },
+                    ) catch |err| {
+                        logJsonError(@errorName(err), diagnostics, ws_message.data);
+                        self.state.fail(.null, .{ .code = .parse_error, .message = @errorName(err) }) catch {};
+                        return;
+                    };
+                };
+
+                self.state.handleMessage(&message) catch |err| switch (err) {
+                    error.Failure => return,
+                    else => {
+                        std.log.err("Message handler error: {}", .{err});
+                    },
+                };
+            }
+
+            pub fn close(self: *@This()) void {
+                self.parse_arena.deinit();
+            }
+        }, allocator, .{ state, &channel }, websocket.Config.Server{ .port = args.channel.ws }, &state.running);
+        // NOTE: websocket server will run until the main thread is killed or the connection is closed (the threads are detached)
+    } else {
+        unreachable;
     }
-
     return 0;
 }
 
@@ -230,11 +298,13 @@ pub const Channel = union(enum) {
         stdout: std.fs.File,
     },
     socket: std.net.Stream,
+    websocket: if (build_options.has_websocket) ?*websocket.Conn else void,
 
     pub fn close(self: *Channel) void {
         switch (self.*) {
             .stdio => {},
             .socket => |stream| stream.close(),
+            .websocket => |conn| if (build_options.has_websocket) if (conn) |c| c.close() else std.log.warn("attempted to close a null websocket connection", .{}) else unreachable,
         }
     }
 
@@ -245,6 +315,10 @@ pub const Channel = union(enum) {
         switch (self.*) {
             .stdio => |stdio| return stdio.stdin.read(buffer),
             .socket => |stream| return stream.read(buffer),
+            .websocket => |conn| if (build_options.has_websocket) if (conn) |c| return c.stream.read(buffer) else {
+                std.log.warn("attempted to read from a null websocket connection", .{});
+                return 0;
+            } else unreachable,
         }
     }
 
@@ -259,6 +333,10 @@ pub const Channel = union(enum) {
         switch (self.*) {
             .stdio => |stdio| return stdio.stdout.write(bytes),
             .socket => |stream| return stream.write(bytes),
+            .websocket => |conn| if (build_options.has_websocket) if (conn) |c| return c.stream.write(bytes) else {
+                std.log.warn("attempted to write to a null websocket connection", .{});
+                return 0;
+            } else unreachable,
         }
     }
 
@@ -267,17 +345,30 @@ pub const Channel = union(enum) {
     }
 };
 
-const State = struct {
+pub const State = struct {
     allocator: std.mem.Allocator,
 
     channel: *std.io.BufferedWriter(4096, Channel.Writer),
     running: bool = true,
     initialized: bool = false,
+    allow_reinit: bool = false,
     parent_pid: ?c_int = null,
     workspace: Workspace,
 
     pub fn deinit(self: *State) void {
         self.workspace.deinit();
+    }
+
+    pub fn stop(self: *State) void {
+        switch (self.channel.unbuffered_writer.context.*) {
+            .websocket => |conn| if (build_options.has_websocket) {
+                if (conn) |c| {
+                    c.close();
+                }
+            } else unreachable,
+            else => {},
+        }
+        self.running = false;
     }
 
     fn handleMessage(self: *State, message: *rpc.Message(Request)) !void {
@@ -300,7 +391,7 @@ const State = struct {
 
         std.log.debug("method: '{'}'", .{std.zig.fmtEscapes(request.method)});
 
-        if (!self.initialized and !std.mem.eql(u8, request.method, "initialize"))
+        if (!self.initialized and !std.mem.eql(u8, request.method, "initialize") and !self.allow_reinit)
             return self.fail(request.id, .{
                 .code = .server_not_initialized,
                 .message = "server has not been initialized",
@@ -326,16 +417,29 @@ const State = struct {
             .emit_null_optional_fields = false,
         };
 
-        // get the size of the encoded message
+        // get the size of the encoded messageúú´
         var counting = std.io.countingWriter(std.io.null_writer);
         try std.json.stringify(response, format_options, counting.writer());
         const content_length = counting.bytes_written;
 
         // send the message to the client
-        const writer = self.channel.writer();
-        try writer.print("Content-Length: {}\r\n\r\n", .{content_length});
-        try std.json.stringify(response, format_options, writer);
-        try self.channel.flush();
+        switch (self.channel.unbuffered_writer.context.*) {
+            .websocket => |conn| if (build_options.has_websocket) {
+                if (conn) |c| {
+                    const str = std.json.stringifyAlloc(self.allocator, response, format_options) catch return SendError.SystemResources;
+                    defer self.allocator.free(str);
+                    try c.write(str);
+                } else {
+                    std.log.warn("attempted to write to a null websocket connection", .{});
+                }
+            } else unreachable,
+            else => {
+                const writer = self.channel.writer();
+                try writer.print("Content-Length: {}\r\n\r\n", .{content_length});
+                try std.json.stringify(response, format_options, writer);
+                try self.channel.flush();
+            },
+        }
     }
 
     pub fn fail(
@@ -348,7 +452,7 @@ const State = struct {
     }
 
     pub fn success(self: *State, id: Request.Id, data: anytype) !void {
-        const bytes = try std.json.stringifyAlloc(self.allocator, data, .{});
+        const bytes = try std.json.stringifyAlloc(self.allocator, data, .{ .emit_null_optional_fields = false });
         defer self.allocator.free(bytes);
         try self.sendResponse(&Response{ .id = id, .result = .{ .success = .{ .raw = bytes } } });
     }
@@ -376,6 +480,7 @@ pub const Dispatch = struct {
         "textDocument/didClose",
         "textDocument/didSave",
         "textDocument/didChange",
+        "textDocument/diagnostic",
         "textDocument/completion",
         "textDocument/hover",
         "textDocument/formatting",
@@ -409,7 +514,7 @@ pub const Dispatch = struct {
     };
 
     pub fn initialize(state: *State, request: *Request) !void {
-        if (state.initialized) {
+        if (state.initialized and !state.allow_reinit) {
             return state.fail(request.id, .{
                 .code = .invalid_request,
                 .message = "server already initialized",
@@ -420,21 +525,23 @@ pub const Dispatch = struct {
         defer params.deinit();
 
         try state.success(request.id, .{
-            .capabilities = .{
-                .completionProvider = .{
-                    .triggerCharacters = .{"."},
+            .capabilities = .{ .completionProvider = .{
+                .triggerCharacters = .{"."},
+                .completionItem = .{
+                    .labelDetailsSupport = true,
+                    .documentationFormat = "markdown",
                 },
-                .textDocumentSync = .{
-                    .openClose = true,
-                    .change = @intFromEnum(lsp.TextDocumentSyncKind.incremental),
-                    .willSave = false,
-                    .willSaveWaitUntil = false,
-                    .save = .{ .includeText = false },
-                },
-                .hoverProvider = true,
-                .documentFormattingProvider = true,
-                .definitionProvider = true,
-            },
+            }, .textDocumentSync = .{
+                .openClose = true,
+                .change = @intFromEnum(lsp.TextDocumentSyncKind.incremental),
+                .willSave = false,
+                .willSaveWaitUntil = false,
+                .save = .{ .includeText = false },
+            }, .hoverProvider = true, .documentFormattingProvider = true, .definitionProvider = true, .diagnosticProvider = .{
+                .identifier = "glsl_analyzer",
+                .interFileDependencies = false,
+                .workspaceDiagnostics = false,
+            } },
             .serverInfo = .{ .name = "glsl_analyzer" },
         });
 
@@ -526,6 +633,29 @@ pub const Dispatch = struct {
         file.version = params.value.textDocument.version;
     }
 
+    pub const DiagnosticParams = struct {
+        textDocument: lsp.TextDocumentIdentifier,
+    };
+
+    pub fn @"textDocument/diagnostic"(state: *State, request: *Request) !void {
+        const params = try parseParams(DiagnosticParams, state, request);
+        defer params.deinit();
+
+        std.log.debug("diagnostic: {s}", .{params.value.textDocument.uri});
+        var file = try state.workspace.getOrLoadDocument(params.value.textDocument);
+
+        const tree = try file.parseTree();
+        const diagnostics = try state.allocator.alloc(lsp.Diagnostic, tree.diagnostics.len);
+        defer state.allocator.free(diagnostics);
+        for (tree.diagnostics, diagnostics) |source, *dest| {
+            dest.* = .{
+                .range = source.span.range(file.source()),
+                .message = source.message,
+            };
+        }
+        try state.success(request.id, .{ .kind = "full", .items = diagnostics });
+    }
+
     pub const CompletionParams = struct {
         textDocument: lsp.TextDocumentIdentifier,
         position: lsp.Position,
@@ -606,7 +736,7 @@ pub const Dispatch = struct {
                 try completions.append(.{
                     .label = symbol.name(),
                     .labelDetails = .{
-                        .detail = type_signature,
+                        .description = type_signature,
                     },
                     .detail = type_signature,
                     .kind = switch (parsed.tree.tag(symbol.parent_declaration)) {
@@ -699,6 +829,8 @@ pub const Dispatch = struct {
                 for (group.items) |completion| {
                     if (completion.detail) |detail| {
                         try text.writer().print("{s}\n", .{detail});
+                    } else {
+                        try text.writer().print("{s}\n", .{completion.label});
                     }
                 }
                 try text.appendSlice("```\n");

@@ -7,6 +7,7 @@ const Workspace = @import("Workspace.zig");
 const Document = @import("Document.zig");
 const syntax = @import("syntax.zig");
 
+/// Or more precisely: a 'Symbol'
 pub const Reference = struct {
     /// The document in which the reference was found.
     document: *Document,
@@ -244,6 +245,7 @@ pub fn visibleFields(
                 .selection => |select| break :lhs select.nodeOf(.field, tree) orelse return,
                 .array => |array| target = array.prefix(tree) orelse return,
                 .number => return,
+                .call => return,
             }
         }
     };
@@ -698,7 +700,7 @@ fn findIncludedDocuments(
                 if (is_relative) absolute_path = try std.fs.path.join(arena, &.{ document_dir, include_path });
                 defer if (is_relative) arena.free(absolute_path);
 
-                const uri = try util.uriFromPath(arena, absolute_path);
+                const uri = try util.uriFromPath(arena, absolute_path, start.workspace.scheme);
                 defer arena.free(uri);
 
                 const included_document = start.workspace.getOrLoadDocument(.{ .uri = uri }) catch |err| {

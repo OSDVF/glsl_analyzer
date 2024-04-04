@@ -11,11 +11,12 @@ allocator: std.mem.Allocator,
 arena_state: std.heap.ArenaAllocator.State,
 spec: Spec,
 builtin_completions: []const lsp.CompletionItem,
+scheme: []const u8,
 
 /// Documents in the workspace, accessed by their path.
 documents: std.StringHashMapUnmanaged(*Document) = .{},
 
-pub fn init(allocator: std.mem.Allocator) !@This() {
+pub fn init(allocator: std.mem.Allocator, scheme: []const u8) !@This() {
     var arena = std.heap.ArenaAllocator.init(allocator);
     errdefer arena.deinit();
 
@@ -26,6 +27,7 @@ pub fn init(allocator: std.mem.Allocator) !@This() {
         .allocator = allocator,
         .arena_state = arena.state,
         .spec = spec,
+        .scheme = scheme,
         .builtin_completions = builtin_completions,
     };
 }
@@ -44,7 +46,7 @@ pub fn deinit(self: *Workspace) void {
 }
 
 pub fn getDocument(self: *Workspace, document: lsp.TextDocumentIdentifier) !?*Document {
-    const path = try util.pathFromUri(self.allocator, document.uri);
+    const path = try util.pathFromUri(self.allocator, document.uri, self.scheme);
     defer self.allocator.free(path);
     return self.documents.get(path);
 }
@@ -53,7 +55,7 @@ pub fn getOrCreateDocument(
     self: *Workspace,
     document: lsp.VersionedTextDocumentIdentifier,
 ) !*Document {
-    const path = try util.pathFromUri(self.allocator, document.uri);
+    const path = try util.pathFromUri(self.allocator, document.uri, self.scheme);
     errdefer self.allocator.free(path);
 
     const entry = try self.documents.getOrPut(self.allocator, path);
@@ -84,7 +86,7 @@ pub fn getOrLoadDocument(
     self: *Workspace,
     document: lsp.TextDocumentIdentifier,
 ) !*Document {
-    const path = try util.pathFromUri(self.allocator, document.uri);
+    const path = try util.pathFromUri(self.allocator, document.uri, self.scheme);
     errdefer self.allocator.free(path);
 
     const entry = try self.documents.getOrPut(self.allocator, path);
@@ -116,7 +118,7 @@ pub fn getOrLoadDocument(
     return entry.value_ptr.*;
 }
 
-fn builtinCompletions(arena: std.mem.Allocator, spec: *const Spec) ![]lsp.CompletionItem {
+pub fn builtinCompletions(arena: std.mem.Allocator, spec: *const Spec) ![]lsp.CompletionItem {
     var completions = std.ArrayList(lsp.CompletionItem).init(arena);
 
     try completions.ensureUnusedCapacity(
@@ -164,7 +166,7 @@ fn builtinCompletions(arena: std.mem.Allocator, spec: *const Spec) ![]lsp.Comple
 
         try completions.append(.{
             .label = variable.name,
-            .labelDetails = .{ .detail = anonymous_signature.items },
+            .labelDetails = .{ .description = anonymous_signature.items },
             .detail = named_signature.items,
             .kind = .variable,
             .documentation = try itemDocumentation(arena, variable),
@@ -180,7 +182,7 @@ fn builtinCompletions(arena: std.mem.Allocator, spec: *const Spec) ![]lsp.Comple
 
         try completions.append(.{
             .label = function.name,
-            .labelDetails = .{ .detail = anonymous_signature.items },
+            .labelDetails = .{ .description = anonymous_signature.items },
             .kind = .function,
             .detail = named_signature.items,
             .documentation = try itemDocumentation(arena, function),

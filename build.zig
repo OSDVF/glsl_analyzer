@@ -90,6 +90,15 @@ fn attachModules(step: *std.Build.CompileStep) !void {
 
     const compressed_spec = try CompressStep.create(b, "spec.json.zlib", .{ .path = b.pathFromRoot("spec/spec.json") });
     step.addAnonymousModule("glsl_spec.json.zlib", .{ .source_file = compressed_spec.getOutput() });
+    if (b.modules.get("websocket")) |websocket| {
+        step.addModule("websocket", websocket);
+    } else {
+        const empty_file_gen = b.addSystemCommand(&.{ "echo", "" });
+        const empty_file = empty_file_gen.captureStdOut();
+        step.addAnonymousModule("websocket", .{
+            .source_file = empty_file,
+        });
+    }
 
     const options = b.addOptions();
     const build_root_path = try std.fs.path.resolve(
@@ -98,6 +107,7 @@ fn attachModules(step: *std.Build.CompileStep) !void {
     );
     options.addOption([]const u8, "build_root", build_root_path);
     options.addOption([]const u8, "version", b.run(&.{ "git", "describe", "--tags", "--always" }));
+    options.addOption(bool, "has_websocket", b.modules.contains("websocket"));
     step.addOptions("build_options", options);
 }
 

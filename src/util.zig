@@ -68,18 +68,17 @@ fn expectNormalizedPath(expected: []const u8, input: []const u8) !void {
     try std.testing.expectEqualStrings(expected, normalized);
 }
 
-pub fn pathFromUri(allocator: std.mem.Allocator, uri: []const u8) ![]u8 {
-    const scheme = "file://";
+pub fn pathFromUri(allocator: std.mem.Allocator, uri: []const u8, scheme: []const u8) ![]u8 {
     if (!std.mem.startsWith(u8, uri, scheme)) return error.UnknownUrlScheme;
     const uri_path = uri[scheme.len..];
     return percentDecode(allocator, uri_path);
 }
 
-pub fn uriFromPath(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+pub fn uriFromPath(allocator: std.mem.Allocator, path: []const u8, scheme: []const u8) ![]u8 {
     const normalized = try normalizePath(allocator, path);
     defer allocator.free(normalized);
 
-    return percentEncodeImpl(allocator, "file://", normalized, struct {
+    return percentEncodeImpl(allocator, scheme, normalized, struct {
         fn shouldEncode(byte: u8) bool {
             return needsPercentEncode(byte) and !std.fs.path.isSep(byte);
         }
@@ -92,7 +91,7 @@ pub fn percentEncode(allocator: std.mem.Allocator, text: []const u8) ![]u8 {
 
 fn percentEncodeImpl(
     allocator: std.mem.Allocator,
-    comptime prefix: []const u8,
+    prefix: []const u8,
     text: []const u8,
     comptime should_encode: fn (u8) bool,
 ) ![]u8 {
