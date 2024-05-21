@@ -172,6 +172,7 @@ pub const Tag = enum(u8) {
 
     subroutine_qualifier,
     layout_qualifier,
+    layout_qualifiers_list,
     precision_declaration,
     block_declaration,
     qualifier_declaration,
@@ -372,6 +373,25 @@ const TokenSet = std.EnumSet(Tag);
 pub const Span = struct {
     start: u32,
     end: u32,
+
+    pub fn range(self: @This(), source: []const u8) lsp.Range {
+        return .{
+            .start = self.position(source),
+            .end = util.positionFromUtf8(source, self.end),
+        };
+    }
+
+    pub fn length(self: @This()) u32 {
+        return self.end - self.start;
+    }
+
+    pub fn position(self: @This(), source: []const u8) lsp.Position {
+        return util.positionFromUtf8(source, self.start);
+    }
+
+    pub fn text(self: @This(), source: []const u8) []const u8 {
+        return source[self.start..self.end];
+    }
 };
 pub const Token = Span;
 pub const Range = Span;
@@ -379,17 +399,6 @@ pub const Range = Span;
 pub const Diagnostic = struct {
     span: Span,
     message: []const u8,
-
-    pub fn position(self: @This(), source: []const u8) lsp.Position {
-        return util.positionFromUtf8(source, self.span.start);
-    }
-
-    pub fn range(self: @This(), source: []const u8) lsp.Range {
-        return .{
-            .start = self.position(source),
-            .end = util.positionFromUtf8(source, self.span.end),
-        };
-    }
 };
 
 pub const Parser = struct {
@@ -1124,36 +1133,34 @@ const expression_recovery = TokenSet.initMany(&.{ .@";", .@"{", .@"}" });
 
 fn postfixExpressionOpt(p: *Parser) bool {
     const m = p.open();
-    var fn_name_start = p.last_end;
     if (!primaryExpressionOpt(p)) return false;
 
     while (true) {
         switch (p.peek()) {
             .@"[" => arraySpecifier(p, m),
             .@"(" => {
-                const fn_name_end = p.last_end;
-                p.advance();
                 const m_args_list = p.open();
+                p.advance();
                 while (!p.eof() and !p.at(.@")")) {
                     if (p.atAny(expression_first)) {
                         const m_arg = p.open();
                         assignmentExpression(p);
-                        if (!p.at(.@")")) p.expect(.@",");
                         p.close(m_arg, .argument);
+                        if (!p.at(.@")")) p.expect(.@",");
                     } else if (p.atAny(expression_recovery)) {
                         break;
                     } else {
                         p.advanceWithError("expected an argument");
                     }
                 }
-                p.close(m_args_list, .arguments_list);
                 p.expect(.@")");
+                p.close(m_args_list, .arguments_list);
                 p.close(m, .call);
 
                 // Store function call location
                 if (p.options.calls) |calls| {
-                    while (fn_name_start < fn_name_end and std.ascii.isWhitespace(p.tokenizer.source[fn_name_start])) fn_name_start += 1;
-                    const fn_name = p.tokenizer.source[fn_name_start..fn_name_end];
+                    const call_node = p.stack.get(p.stack.len - 1);
+                    const fn_name = p.tree.nodeSpan(call_node.span.start).text(p.tokenizer.source);
                     if (calls.getPtr(fn_name)) |the_func_calls| {
                         p.deferError(the_func_calls.append(@intCast(p.tree.nodes.len))); // The next node will be the .call node
                     } else {
@@ -1323,6 +1330,7 @@ fn typeQualifierSingle(p: *Parser) void {
         .keyword_layout => {
             const m = p.open();
             p.advance();
+            const m_lq_list = p.open();
             p.expect(.@"(");
             while (true) {
                 switch (p.peek()) {
@@ -1341,6 +1349,7 @@ fn typeQualifierSingle(p: *Parser) void {
                 p.expect(.@",");
             }
             p.expect(.@")");
+            p.close(m_lq_list, .layout_qualifiers_list);
             p.close(m, .layout_qualifier);
         },
 

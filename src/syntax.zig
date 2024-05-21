@@ -34,7 +34,7 @@ pub const FunctionDeclaration = Extractor(.function_declaration, struct {
     semi: Token(.@";"),
 });
 
-pub const ArgumentsList = ListExtractor(.arguments_list, Token(.@"("), Expression, Token(.@")"));
+pub const ArgumentsList = ListExtractor(.arguments_list, Token(.@"("), Argument, Token(.@")"));
 
 pub const Call = Extractor(.call, struct {
     identifier: Token(.identifier),
@@ -139,6 +139,78 @@ pub const QualifierList = ListExtractor(.type_qualifier_list, null, Qualifier, n
 
 pub const Qualifier = union(enum) {
     pub usingnamespace UnionExtractorMixin(@This());
+
+    storage: StorageQualifier,
+    layout: LayoutQualifier,
+    precision: PrecisionQualifier,
+    interpolation: InterpolationQualifier,
+    invariant: Token(.keyword_invariant),
+    precise: Token(.keyword_precise),
+    subroutine: SubroutineQualifier,
+};
+
+pub const StorageQualifier = union(enum) {
+    pub usingnamespace UnionExtractorMixin(@This());
+
+    @"const": Token(.keyword_const),
+    attribute: Token(.keyword_attribute),
+    uniform: Token(.keyword_uniform),
+    varying: Token(.keyword_varying),
+    buffer: Token(.keyword_buffer),
+    shared: Token(.keyword_shared),
+    coherent: Token(.keyword_coherent),
+    @"volatile": Token(.keyword_volatile),
+    restrict: Token(.keyword_restrict),
+    readonly: Token(.keyword_readonly),
+    writeonly: Token(.keyword_writeonly),
+    in: Token(.keyword_in),
+    out: Token(.keyword_out),
+    inout: Token(.keyword_inout),
+    patch: Token(.keyword_patch),
+    sample: Token(.keyword_sample),
+};
+
+pub const LayoutQualifier = Extractor(.layout_qualifier, struct {
+    keyword_layout: Token(.keyword_layout),
+    layout_qualifiers: LayoutQualifierList,
+});
+
+pub const LayoutQualifierList = ListExtractor(.layout_qualifiers_list, Token(.@"("), LayoutQualifierItem, Token(.@")"));
+
+pub const LayoutQualifierItem = union(enum) {
+    pub usingnamespace UnionExtractorMixin(@This());
+
+    assignment: Assignment,
+    other: union(enum) {
+        pub usingnamespace UnionExtractorMixin(@This());
+    },
+};
+
+pub const Assignment = Extractor(.assignment, struct {
+    identifier: Token(.identifier),
+    eq: Token(.@"="),
+    value: Expression,
+});
+
+pub const PrecisionQualifier = union(enum) {
+    pub usingnamespace UnionExtractorMixin(@This());
+
+    highp: Token(.keyword_highp),
+    mediump: Token(.keyword_mediump),
+    lowp: Token(.keyword_lowp),
+};
+
+pub const InterpolationQualifier = union(enum) {
+    pub usingnamespace UnionExtractorMixin(@This());
+
+    smooth: Token(.keyword_smooth),
+    flat: Token(.keyword_flat),
+    noperspective: Token(.keyword_noperspective),
+    centroid: Token(.keyword_centroid),
+};
+
+pub const SubroutineQualifier = union(enum) {
+    pub usingnamespace UnionExtractorMixin(@This());
 };
 
 pub const TypeSpecifier = union(enum) {
@@ -188,6 +260,10 @@ pub const Statement = union(enum) {
 pub const ConditionList = ListExtractor(.condition_list, Token(.@"("), Statement, Token(.@")"));
 
 pub const Expression = Lazy("ExpressionUnion");
+
+pub const Argument = Extractor(.argument, struct {
+    expression: Expression,
+});
 
 pub const ExpressionUnion = union(enum) {
     pub usingnamespace UnionExtractorMixin(@This());
