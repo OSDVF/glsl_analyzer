@@ -415,7 +415,7 @@ pub const Parser = struct {
 
     options: ParseOptions,
 
-    const max_fuel = 32;
+    const max_fuel = 256;
 
     pub const Error = error{OutOfMemory};
 
@@ -498,7 +498,7 @@ pub const Parser = struct {
 
     fn peek(self: *@This()) Tag {
         self.fuel -= 1;
-        if (self.fuel == 0) std.debug.panic("ran out of fuel", .{});
+        if (self.fuel == 0) std.debug.panic("parser ran out of fuel (infinite loop?): {}", .{self.next.tag});
         return self.next.tag;
     }
 

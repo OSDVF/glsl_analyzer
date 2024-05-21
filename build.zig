@@ -52,10 +52,10 @@ pub fn build(b: *std.Build) !void {
         const release_step = b.step("release", "Produce executables for targeted platforms");
 
         for (&target_triples) |triple| {
-            const release_target = try std.zig.CrossTarget.parse(.{
+            const release_target = b.resolveTargetQuery(try std.Target.Query.parse(.{
                 .arch_os_abi = triple,
                 .cpu_features = "baseline",
-            });
+            }));
 
             const exe = try addExecutable(b, .{ .target = release_target, .optimize = optimize });
             const install = b.addInstallArtifact(exe, .{
@@ -70,9 +70,9 @@ pub fn build(b: *std.Build) !void {
 }
 
 fn addExecutable(b: *std.Build, options: struct {
-    target: std.zig.CrossTarget,
+    target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-}) !*std.Build.CompileStep {
+}) !*std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "glsl_analyzer",
         .root_source_file = .{ .path = "src/main.zig" },
@@ -83,22 +83,13 @@ fn addExecutable(b: *std.Build, options: struct {
     return exe;
 }
 
-fn attachModules(step: *std.Build.CompileStep) !void {
+fn attachModules(step: *std.Build.Step.Compile) !void {
     const b = step.step.owner;
 
     step.linkLibC();
 
     const compressed_spec = try CompressStep.create(b, "spec.json.zlib", .{ .path = b.pathFromRoot("spec/spec.json") });
-    step.addAnonymousModule("glsl_spec.json.zlib", .{ .source_file = compressed_spec.getOutput() });
-    if (b.modules.get("websocket")) |websocket| {
-        step.addModule("websocket", websocket);
-    } else {
-        const empty_file_gen = b.addSystemCommand(&.{ "echo", "" });
-        const empty_file = empty_file_gen.captureStdOut();
-        step.addAnonymousModule("websocket", .{
-            .source_file = empty_file,
-        });
-    }
+    step.root_module.addAnonymousImport("glsl_spec.json.zlib", .{ .root_source_file = compressed_spec.getOutput() });
 
     const options = b.addOptions();
     const build_root_path = try std.fs.path.resolve(
@@ -108,7 +99,7 @@ fn attachModules(step: *std.Build.CompileStep) !void {
     options.addOption([]const u8, "build_root", build_root_path);
     options.addOption([]const u8, "version", b.run(&.{ "git", "describe", "--tags", "--always" }));
     options.addOption(bool, "has_websocket", b.modules.contains("websocket"));
-    step.addOptions("build_options", options);
+    step.root_module.addOptions("build_options", options);
 }
 
 const CompressStep = struct {
@@ -138,10 +129,10 @@ const CompressStep = struct {
 
     fn make(step: *std.Build.Step, _: *std.Progress.Node) anyerror!void {
         const b = step.owner;
-        const self = @fieldParentPtr(@This(), "step", step);
+        const self: *@This() = @fieldParentPtr("step", step);
         const input_path = self.input.getPath(b);
 
-        var man = b.cache.obtain();
+        var man = b.graph.cache.obtain();
         defer man.deinit();
 
         man.hash.add(@as(u32, 0x00000002));
@@ -156,7 +147,7 @@ const CompressStep = struct {
 
         if (is_hit) return;
 
-        const input_contents = man.files.items[input_index].contents.?;
+        const input_contents = man.files.keys()[input_index].contents.?;
 
         if (std.fs.path.dirname(output_path)) |dir| try b.cache_root.handle.makePath(dir);
         var output_file = b.cache_root.handle.createFile(output_path, .{}) catch |err| {
@@ -166,11 +157,11 @@ const CompressStep = struct {
         defer output_file.close();
 
         var output_buffered = std.io.bufferedWriter(output_file.writer());
-        var compress_stream = try std.compress.zlib.compressStream(b.allocator, output_buffered.writer(), .{});
-        defer compress_stream.deinit();
-
-        try compress_stream.writer().writeAll(input_contents);
-        try compress_stream.finish();
+        {
+            var compress_stream = try std.compress.zlib.compressor(output_buffered.writer(), .{});
+            try compress_stream.writer().writeAll(input_contents);
+            try compress_stream.finish();
+        }
         try output_buffered.flush();
 
         try step.writeManifest(&man);
