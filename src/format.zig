@@ -185,7 +185,7 @@ fn formatNode(tree: parse.Tree, current: usize, writer: anytype) !void {
             try writer.emitLeadingWhitespace(writer.source.len, .{ .min = 1, .max = 1 });
         },
 
-        .block, .field_declaration_list => {
+        .block, .field_declaration_list, .initializer_list => {
             const children = tree.children(current);
             var inside_block = false;
             var has_children = false;
@@ -655,6 +655,20 @@ test "format multiline define" {
         \\    do {\
         \\    x++;\
         \\    } while (0)
+        \\
+    );
+}
+
+test "format multiline array literal" {
+    try expectIsFormatted(
+        \\const float data[] = {
+        \\        0.0,
+        \\        1.0,
+        \\        2.0,
+        \\        3.0,
+        \\        4.0,
+        \\        5.0,
+        \\    };
         \\
     );
 }
