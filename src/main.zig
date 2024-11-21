@@ -191,7 +191,7 @@ pub fn run(allocator: std.mem.Allocator, state: *State, args: cli.Arguments) !u8
             };
         }
     } else if (build_options.has_websocket) {
-        try websocket.listen(struct {
+        var server = try websocket.Server(struct {
             conn: *websocket.Conn,
             parse_arena: std.heap.ArenaAllocator,
             state: *State,
@@ -205,7 +205,7 @@ pub fn run(allocator: std.mem.Allocator, state: *State, args: cli.Arguments) !u8
                 };
             }
 
-            pub fn handle(self: *@This(), ws_message: websocket.Message) !void {
+            pub fn clientMessage(self: *@This(), ws_message: []const u8) !void {
                 defer _ = self.parse_arena.reset(.retain_capacity);
                 if (self.state.running == false) return error.Closed;
 
@@ -213,7 +213,7 @@ pub fn run(allocator: std.mem.Allocator, state: *State, args: cli.Arguments) !u8
 
                 // parse message(s)
                 var message = blk: {
-                    var scanner = std.json.Scanner.initCompleteInput(self.parse_arena.allocator(), ws_message.data); //TODO fragmentation
+                    var scanner = std.json.Scanner.initCompleteInput(self.parse_arena.allocator(), ws_message); //TODO fragmentation
                     defer scanner.deinit();
 
                     var diagnostics = std.json.Diagnostics{};
@@ -225,7 +225,7 @@ pub fn run(allocator: std.mem.Allocator, state: *State, args: cli.Arguments) !u8
                         &scanner,
                         .{ .allocate = .alloc_if_needed },
                     ) catch |err| {
-                        logJsonError(@errorName(err), diagnostics, ws_message.data);
+                        logJsonError(@errorName(err), diagnostics, ws_message);
                         self.state.fail(.null, .{ .code = .parse_error, .message = @errorName(err) }) catch {};
                         return;
                     };
@@ -239,10 +239,12 @@ pub fn run(allocator: std.mem.Allocator, state: *State, args: cli.Arguments) !u8
                 };
             }
 
-            pub fn close(self: *@This()) void {
+            pub fn clientClose(self: *@This(), _: anytype) !void {
                 self.parse_arena.deinit();
             }
-        }, allocator, .{ state, &channel }, websocket.Config.Server{ .port = args.channel.ws }, &state.running);
+        }).init(allocator, websocket.Config{ .port = args.channel.ws });
+
+        try server.listen(.{ state, &channel });
         // NOTE: websocket server will run until the main thread is killed or the connection is closed (the threads are detached)
     } else {
         unreachable;
@@ -303,7 +305,7 @@ pub const Channel = union(enum) {
         switch (self.*) {
             .stdio => {},
             .socket => |stream| stream.close(),
-            .websocket => |conn| if (build_options.has_websocket) if (conn) |c| c.close() else std.log.warn("attempted to close a null websocket connection", .{}) else unreachable,
+            .websocket => |conn| if (build_options.has_websocket) if (conn) |c| c.close(.{}) catch {} else std.log.warn("attempted to close a null websocket connection", .{}) else unreachable,
         }
     }
 
@@ -359,15 +361,17 @@ pub const State = struct {
     }
 
     pub fn stop(self: *State) void {
+        self.running = false;
         switch (self.channel.unbuffered_writer.context.*) {
             .websocket => |conn| if (build_options.has_websocket) {
                 if (conn) |c| {
-                    c.close();
+                    c.close(.{ .code = 1001, .reason = "server shutting down" }) catch |err| {
+                        std.log.err("error closing websocket connection: {}", .{err});
+                    };
                 }
             } else unreachable,
             else => {},
         }
-        self.running = false;
     }
 
     fn handleMessage(self: *State, message: *rpc.Message(Request)) !void {
