@@ -340,11 +340,11 @@ fn TokenSetToSyntax(comptime set: std.EnumSet(parse.Tag)) type {
         i += 1;
     }
 
-    const u = @Type(.{ .Union = std.builtin.Type.Union{
+    const u = @Type(.{ .@"union" = std.builtin.Type.Union{
         .fields = &u_fields,
         .decls = &.{},
         .layout = .auto,
-        .tag_type = @Type(.{ .Enum = std.builtin.Type.Enum{
+        .tag_type = @Type(.{ .@"enum" = std.builtin.Type.Enum{
             .fields = &e_fields,
             .decls = &.{},
             .is_exhaustive = true,
@@ -398,14 +398,14 @@ pub fn Extractor(comptime expected_tag: Tag, comptime T: type) type {
         }
 
         const MatchFields = @Type(.{
-            .Struct = .{
+            .@"struct" = .{
                 .layout = .auto,
                 .fields = blk: {
                     var match_fields: [fields.len]std.builtin.Type.StructField = undefined;
                     for (&match_fields, fields) |*match_field, field| {
                         match_field.* = field;
                         match_field.type = Match(field.type);
-                        match_field.default_value = &@as(match_field.type, .{});
+                        match_field.default_value_ptr = &@as(match_field.type, .{});
                     }
                     break :blk &match_fields;
                 },
@@ -553,7 +553,7 @@ pub fn UnionExtractorMixin(comptime Self: type) type {
         pub usingnamespace ExtractorMixin(Self);
 
         const MatchUnion = @Type(.{
-            .Union = .{
+            .@"union" = .{
                 .layout = .auto,
                 .fields = blk: {
                     var match_fields: [fields.len]std.builtin.Type.UnionField = undefined;
@@ -616,7 +616,7 @@ pub fn Lazy(comptime type_name: []const u8) type {
 
         const Type = @field(syntax, type_name);
         const Match = MatchResult(Type);
-        const MatchInt = std.meta.Int(.unsigned, 8 * @sizeOf(Match));
+        const MatchInt = std.meta.int(.unsigned, 8 * @sizeOf(Match));
 
         fn encodeMatchResult(res: Match) [4]u8 {
             switch (@sizeOf(Match)) {
@@ -651,8 +651,8 @@ pub fn Lazy(comptime type_name: []const u8) type {
 }
 
 pub fn MatchResult(comptime T: type) type {
-    const match_fn_return = @typeInfo(@TypeOf(T.match)).Fn.return_type.?;
-    return @typeInfo(match_fn_return).Optional.child;
+    const match_fn_return = @typeInfo(@TypeOf(T.match)).@"fn".return_type.?;
+    return @typeInfo(match_fn_return).optional.child;
 }
 
 pub fn ExtractorMixin(comptime Self: type) type {

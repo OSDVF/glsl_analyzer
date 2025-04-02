@@ -12,7 +12,7 @@ path: []const u8,
 version: ?i64,
 
 /// The raw bytes of the file (utf-8)
-contents: std.ArrayListUnmanaged(u8) = .{},
+contents: std.ArrayListUnmanaged(u8) = .empty,
 
 /// Parse tree of the document (computed on-demand)
 parse_tree: ?CompleteParseTree = null,

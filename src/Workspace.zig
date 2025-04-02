@@ -14,7 +14,7 @@ builtin_completions: []const lsp.CompletionItem,
 scheme: []const u8,
 
 /// Documents in the workspace, accessed by their path.
-documents: std.StringHashMapUnmanaged(*Document) = .{},
+documents: std.StringHashMapUnmanaged(*Document) = .empty,
 
 pub fn init(allocator: std.mem.Allocator, scheme: []const u8) !@This() {
     var arena = std.heap.ArenaAllocator.init(allocator);
