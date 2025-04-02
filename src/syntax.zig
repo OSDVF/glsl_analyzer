@@ -188,7 +188,7 @@ pub const LayoutQualifierItem = union(enum) {
 
 pub const Assignment = Extractor(.assignment, struct {
     identifier: Token(.identifier),
-    eq: Token(.@"="),
+    eq: AssignmentOperator,
     value: Expression,
 });
 
@@ -240,8 +240,8 @@ pub const FieldList = ListExtractor(.field_declaration_list, Token(.@"{"), Decla
 
 pub const ArraySpecifierName = ArraySpecifier(Token(.identifier));
 
-pub fn ArraySpecifier(comptime Inner: type) type {
-    return ListExtractor(.array_specifier, Inner, Array, null);
+pub fn ArraySpecifier(comptime Prefix: type) type {
+    return ListExtractor(.array_specifier, Prefix, Array, null);
 }
 
 pub const Array = Extractor(.array, struct {
@@ -265,18 +265,98 @@ pub const Argument = Extractor(.argument, struct {
     expression: Expression,
 });
 
+pub const Selectable = Lazy("SelectableUnion");
+
+pub const SelectableUnion = union(enum) {
+    pub usingnamespace UnionExtractorMixin(@This());
+
+    identifier: Token(.identifier),
+    array: ArraySpecifier(Selectable),
+    selection: Selection,
+    call: Call,
+};
+
 pub const ExpressionUnion = union(enum) {
     pub usingnamespace UnionExtractorMixin(@This());
 
     identifier: Token(.identifier),
     number: Token(.number),
-    array: ArraySpecifier(Expression),
+    array: ArraySpecifier(Selectable),
+    infix: InfixExpression,
+    postfix: PostfixExpression,
+    prefix: PrefixExpression,
+    assignment: Assignment,
     selection: Selection,
     call: Call,
+    sequence: Sequence,
+    parenthized: Parenthized,
 };
 
+pub const Sequence = ListExtractor(.expression_sequence, Token(.@"("), Expression, Token(.@")"));
+
+pub const Parenthized = Extractor(.parenthized, struct {
+    open: Token(.@"("),
+    expression: Expression,
+    close: Token(.@")"),
+});
+
+pub const InfixExpression = Extractor(.infix, struct {
+    left: Expression,
+    op: InfixOperator,
+    right: Expression,
+});
+
+pub const PostfixExpression = Extractor(.postfix, struct {
+    expression: Expression,
+    op: UnaryOperator,
+});
+
+pub const PrefixExpression = Extractor(.prefix, struct {
+    op: UnaryOperator,
+    expression: Expression,
+});
+
+pub const InfixOperator = TokenSetToSyntax(parse.infix_operators);
+pub const AssignmentOperator = TokenSetToSyntax(parse.assignment_operators);
+pub const UnaryOperator = TokenSetToSyntax(parse.unary_operators);
+
+/// Converts a set of token-tags into a syntax extractor
+fn TokenSetToSyntax(comptime set: std.EnumSet(parse.Tag)) type {
+    var it = set.iterator();
+    var u_fields: [set.count()]std.builtin.Type.UnionField = undefined;
+    var e_fields: [set.count()]std.builtin.Type.EnumField = undefined;
+
+    var i = 0;
+    while (it.next()) |op| {
+        u_fields[i] = std.builtin.Type.UnionField{
+            .name = @tagName(op),
+            .type = Token(op),
+            .alignment = 0,
+        };
+        e_fields[i] = std.builtin.Type.EnumField{
+            .name = @tagName(op),
+            .value = @intFromEnum(op),
+        };
+        i += 1;
+    }
+
+    const u = @Type(.{ .Union = std.builtin.Type.Union{
+        .fields = &u_fields,
+        .decls = &.{},
+        .layout = .auto,
+        .tag_type = @Type(.{ .Enum = std.builtin.Type.Enum{
+            .fields = &e_fields,
+            .decls = &.{},
+            .is_exhaustive = true,
+            .tag_type = u8,
+        } }),
+    } });
+
+    return UnionExtractorMixin(u);
+}
+
 pub const Selection = Extractor(.selection, struct {
-    target: Expression,
+    target: Selectable,
     @".": Token(.@"."),
     field: Token(.identifier),
 });

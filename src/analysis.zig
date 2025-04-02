@@ -237,16 +237,23 @@ pub fn visibleFields(
 
         const parent = tree.parent(start_node) orelse return;
         const selection = syntax.Selection.tryExtract(tree, parent) orelse return;
-        var target = selection.get(.target, tree) orelse return;
+        const first_target = selection.get(.target, tree) orelse return;
 
-        while (true) {
-            switch (target.get(tree)) {
-                .identifier => break :lhs target.node,
-                .selection => |select| break :lhs select.nodeOf(.field, tree) orelse return,
-                .array => |array| target = array.prefix(tree) orelse return,
-                .number => return,
-                .call => return,
-            }
+        switch (first_target.get(tree)) {
+            .identifier => break :lhs first_target.node,
+            .selection => |select| break :lhs select.nodeOf(.field, tree) orelse return,
+            .array => |array| {
+                var target = array.prefix(tree) orelse return;
+                while (true) {
+                    switch (target.get(tree)) {
+                        .identifier => break :lhs target.node,
+                        .selection => |select| break :lhs select.nodeOf(.field, tree) orelse return,
+                        .array => |a| target = a.prefix(tree) orelse return,
+                        .call => return,
+                    }
+                }
+            },
+            .call => return,
         }
     };
 

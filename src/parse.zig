@@ -1096,7 +1096,7 @@ fn infixExpressionOptImpl(p: *Parser, lhs: Tag) bool {
     return true;
 }
 
-const unary_operators = TokenSet.initMany(&.{
+pub const unary_operators = TokenSet.initMany(&.{
     .@"+",
     .@"-",
     .@"!",
