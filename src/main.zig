@@ -36,7 +36,7 @@ fn enableDevelopmentMode(stderr_target: []const u8) !void {
 }
 
 pub fn main() !u8 {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 8 }){};
+    var gpa = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 8 }).init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
     var state: State = undefined;
@@ -328,7 +328,7 @@ pub const Channel = union(enum) {
     }
 
     pub const Writer = std.io.Writer(*Channel, WriteError, write);
-    pub const WriteError = std.fs.File.WriteError || std.net.Stream.WriteError;
+    pub const WriteError = std.fs.File.WriteError || std.net.Stream.WriteError || websocket.server.Conn.Writer.Error;
 
     pub fn write(self: *Channel, bytes: []const u8) WriteError!usize {
         switch (self.*) {
@@ -431,7 +431,7 @@ pub const State = struct {
                 if (conn) |c| {
                     const str = std.json.stringifyAlloc(self.allocator, response, format_options) catch return SendError.SystemResources;
                     defer self.allocator.free(str);
-                    try c.write(str);
+                    c.write(str) catch return SendError.Unexpected; //TODO something more specific
                 } else {
                     std.log.warn("attempted to write to a null websocket connection", .{});
                 }

@@ -274,7 +274,7 @@ pub fn visibleFields(
 
         var remaining_iterations: u32 = 16;
 
-        while (references.popOrNull()) |reference| {
+        while (references.pop()) |reference| {
             if (remaining_iterations == 0 or references.items.len >= 128) break;
             remaining_iterations -= 1;
 
@@ -324,8 +324,8 @@ pub const Scope = struct {
     const ScopeId = u32;
 
     allocator: std.mem.Allocator,
-    symbols: std.StringArrayHashMapUnmanaged(Symbol) = .{},
-    active_scopes: std.ArrayListUnmanaged(ScopeId) = .{},
+    symbols: std.StringArrayHashMapUnmanaged(Symbol) = .empty,
+    active_scopes: std.ArrayListUnmanaged(ScopeId) = .empty,
     next_scope: ScopeId = 0,
 
     const Symbol = struct {
