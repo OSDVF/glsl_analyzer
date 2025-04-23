@@ -12,7 +12,7 @@ const Workspace = @import("Workspace.zig");
 const cli = @import("cli.zig");
 const analysis = @import("analysis.zig");
 const parse = @import("parse.zig");
-const websocket = @import("websocket");
+const websocket = if (build_options.has_websocket) @import("websocket");
 const net = std.net;
 
 pub const std_options: std.Options = .{
@@ -328,7 +328,7 @@ pub const Channel = union(enum) {
     }
 
     pub const Writer = std.io.Writer(*Channel, WriteError, write);
-    pub const WriteError = std.fs.File.WriteError || std.net.Stream.WriteError || websocket.server.Conn.Writer.Error;
+    pub const WriteError = std.fs.File.WriteError || std.net.Stream.WriteError || (if (build_options.has_websocket) websocket.server.Conn.Writer.Error else error{});
 
     pub fn write(self: *Channel, bytes: []const u8) WriteError!usize {
         switch (self.*) {

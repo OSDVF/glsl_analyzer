@@ -10,7 +10,11 @@ const Tag = parse.Tag;
 pub const File = ListExtractor(.file, null, ExternalDeclaration, null);
 
 pub const AnyDeclaration = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
     function: FunctionDeclaration,
     variable: Declaration,
     block: BlockDeclaration,
@@ -19,7 +23,12 @@ pub const AnyDeclaration = union(enum) {
 };
 
 pub const ExternalDeclaration = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
+
     function: FunctionDeclaration,
     variable: Declaration,
     block: BlockDeclaration,
@@ -66,7 +75,11 @@ pub const Declaration = Extractor(.declaration, struct {
 });
 
 pub const Variables = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
     one: VariableDeclaration,
     many: VariableDeclarationList,
 
@@ -106,7 +119,11 @@ pub const VariableDeclaration = Extractor(.variable_declaration, struct {
 });
 
 pub const VariableName = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 
     identifier: Token(.identifier),
     array: ArraySpecifierName,
@@ -127,7 +144,11 @@ pub const VariableName = union(enum) {
 };
 
 pub const Initializer = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 
     list: InitializerList,
     expr: Expression,
@@ -138,7 +159,11 @@ pub const InitializerList = ListExtractor(.initializer_list, Token(.@"{"), Initi
 pub const QualifierList = ListExtractor(.type_qualifier_list, null, Qualifier, null);
 
 pub const Qualifier = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 
     storage: StorageQualifier,
     layout: LayoutQualifier,
@@ -150,7 +175,11 @@ pub const Qualifier = union(enum) {
 };
 
 pub const StorageQualifier = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 
     @"const": Token(.keyword_const),
     attribute: Token(.keyword_attribute),
@@ -178,11 +207,19 @@ pub const LayoutQualifier = Extractor(.layout_qualifier, struct {
 pub const LayoutQualifierList = ListExtractor(.layout_qualifiers_list, Token(.@"("), LayoutQualifierItem, Token(.@")"));
 
 pub const LayoutQualifierItem = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 
     assignment: Assignment,
     other: union(enum) {
-        pub usingnamespace UnionExtractorMixin(@This());
+        pub const e = UnionExtractorMixin(@This());
+        pub const extract = e.extract;
+        pub const getNode = e.getNode;
+        pub const match = e.match;
+        pub const tryExtract = e.extractor.tryExtract;
     },
 };
 
@@ -193,7 +230,11 @@ pub const Assignment = Extractor(.assignment, struct {
 });
 
 pub const PrecisionQualifier = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 
     highp: Token(.keyword_highp),
     mediump: Token(.keyword_mediump),
@@ -201,7 +242,11 @@ pub const PrecisionQualifier = union(enum) {
 };
 
 pub const InterpolationQualifier = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 
     smooth: Token(.keyword_smooth),
     flat: Token(.keyword_flat),
@@ -210,11 +255,19 @@ pub const InterpolationQualifier = union(enum) {
 };
 
 pub const SubroutineQualifier = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 };
 
 pub const TypeSpecifier = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 
     identifier: Token(.identifier),
     array_specifier: ArraySpecifierName,
@@ -253,7 +306,11 @@ pub const Array = Extractor(.array, struct {
 pub const Block = ListExtractor(.block, Token(.@"{"), Statement, Token(.@"}"));
 
 pub const Statement = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
     declaration: Declaration,
 };
 
@@ -268,7 +325,11 @@ pub const Argument = Extractor(.argument, struct {
 pub const Selectable = Lazy("SelectableUnion");
 
 pub const SelectableUnion = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 
     identifier: Token(.identifier),
     array: ArraySpecifier(Selectable),
@@ -277,7 +338,11 @@ pub const SelectableUnion = union(enum) {
 };
 
 pub const ExpressionUnion = union(enum) {
-    pub usingnamespace UnionExtractorMixin(@This());
+    pub const extractor = UnionExtractorMixin(@This());
+    pub const extract = extractor.extract;
+    pub const getNode = extractor.getNode;
+    pub const match = extractor.match;
+    pub const tryExtract = extractor.extractor.tryExtract;
 
     identifier: Token(.identifier),
     number: Token(.number),
@@ -364,7 +429,7 @@ pub const Selection = Extractor(.selection, struct {
 pub fn Token(comptime tag: Tag) type {
     comptime std.debug.assert(tag.isToken());
     return struct {
-        pub usingnamespace ExtractorMixin(@This());
+        pub const extractor = ExtractorMixin(@This());
 
         node: u32,
 
@@ -388,7 +453,8 @@ pub fn Extractor(comptime expected_tag: Tag, comptime T: type) type {
     const FieldEnum = std.meta.FieldEnum(T);
 
     return struct {
-        pub usingnamespace ExtractorMixin(@This());
+        const extractor = ExtractorMixin(@This());
+        pub const tryExtract = extractor.tryExtract;
 
         fn Match(comptime FieldType: type) type {
             return struct {
@@ -467,7 +533,8 @@ pub fn ListExtractor(comptime tag: Tag, comptime Prefix: ?type, comptime Item: t
     const SuffixMatch = if (Suffix) |S| MatchResult(S) else noreturn;
 
     return struct {
-        pub usingnamespace ExtractorMixin(@This());
+        pub const extractor = ExtractorMixin(@This());
+        pub const tryExtract = extractor.tryExtract;
 
         const Self = @This();
 
@@ -508,17 +575,17 @@ pub fn ListExtractor(comptime tag: Tag, comptime Prefix: ?type, comptime Item: t
             };
         }
 
-        pub usingnamespace if (Prefix) |PrefixType| struct {
+        pub const prefix = if (Prefix) |PrefixType| struct {
             pub fn prefix(self: Self, tree: Tree) ?PrefixType {
                 return PrefixType.extract(tree, self.items.start - 1, self.prefix_match orelse return null);
             }
-        } else struct {};
+        }.prefix else {};
 
-        pub usingnamespace if (Suffix) |SuffixType| struct {
+        pub const suffix = if (Suffix) |SuffixType| struct {
             pub fn suffix(self: Self, tree: Tree) ?SuffixType {
                 return SuffixType.extract(tree, self.items.end, self.suffix_match orelse return null);
             }
-        } else struct {};
+        }.suffix else {};
 
         pub const Iterator = ListIterator(Item);
 
@@ -550,7 +617,7 @@ pub fn UnionExtractorMixin(comptime Self: type) type {
     const fields = std.meta.fields(Self);
 
     return struct {
-        pub usingnamespace ExtractorMixin(Self);
+        pub const extractor = ExtractorMixin(Self);
 
         const MatchUnion = @Type(.{
             .@"union" = .{
@@ -609,7 +676,7 @@ pub fn UnionExtractorMixin(comptime Self: type) type {
 /// Break type-level dependency cycles through lazy-evaluation indirection.
 pub fn Lazy(comptime type_name: []const u8) type {
     return struct {
-        pub usingnamespace ExtractorMixin(@This());
+        pub const extractor = ExtractorMixin(@This());
 
         node: u32,
         match_result_bytes: [4]u8,
@@ -650,8 +717,18 @@ pub fn Lazy(comptime type_name: []const u8) type {
     };
 }
 
+fn getMatchFnType(comptime T: type) type {
+    if (@hasDecl(T, "match")) {
+        return @TypeOf(T.match);
+    } else if (@hasDecl(T, "extractor")) {
+        return getMatchFnType(T.extractor);
+    } else {
+        @compileError("Type " ++ @typeName(T) ++ " has no match function");
+    }
+}
+
 pub fn MatchResult(comptime T: type) type {
-    const match_fn_return = @typeInfo(@TypeOf(T.match)).@"fn".return_type.?;
+    const match_fn_return = @typeInfo(getMatchFnType(T)).@"fn".return_type.?;
     return @typeInfo(match_fn_return).optional.child;
 }
 
