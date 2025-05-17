@@ -2,7 +2,6 @@ const std = @import("std");
 const parse = @import("parse.zig");
 const util = @import("util.zig");
 const Tree = parse.Tree;
-const Node = parse.Node;
 const Workspace = @import("Workspace.zig");
 const Document = @import("Document.zig");
 const syntax = @import("syntax.zig");

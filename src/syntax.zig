@@ -9,6 +9,7 @@ const Tag = parse.Tag;
 
 pub const File = ListExtractor(.file, null, ExternalDeclaration, null);
 
+/// Declaration of a visible symbol / type
 pub const AnyDeclaration = union(enum) {
     pub const extractor = UnionExtractorMixin(@This());
     pub const extract = extractor.extract;
@@ -43,6 +44,7 @@ pub const FunctionDeclaration = Extractor(.function_declaration, struct {
     semi: Token(.@";"),
 });
 
+/// Arguments of a function call (not a function declaration)
 pub const ArgumentsList = ListExtractor(.arguments_list, Token(.@"("), Argument, Token(.@")"));
 
 pub const Call = Extractor(.call, struct {
@@ -50,8 +52,10 @@ pub const Call = Extractor(.call, struct {
     arguments: ArgumentsList,
 });
 
+/// Parameters of a function declaration (not a function call)
 pub const ParameterList = ListExtractor(.parameter_list, Token(.@"("), Parameter, Token(.@")"));
 
+/// Parameter of a function declaration (not a function call)
 pub const Parameter = Extractor(.parameter, struct {
     qualifiers: QualifierList,
     specifier: TypeSpecifier,
@@ -65,6 +69,14 @@ pub const BlockDeclaration = Extractor(.block_declaration, struct {
     fields: FieldList,
     variable: VariableDeclaration,
     semi: Token(.@";"),
+});
+
+pub const ConditionalExpression = Extractor(.conditional, struct {
+    condition: Expression,
+    @"?": Token(.@"?"),
+    true_expr: Expression,
+    @":": Token(.@":"),
+    false_expr: Expression,
 });
 
 pub const Declaration = Extractor(.declaration, struct {
@@ -311,6 +323,11 @@ pub const Statement = union(enum) {
     pub const getNode = extractor.getNode;
     pub const match = extractor.match;
     pub const tryExtract = extractor.extractor.tryExtract;
+
+    pub fn node(self: @This()) u32 {
+        return self.declaration.node;
+    }
+
     declaration: Declaration,
 };
 
@@ -318,6 +335,7 @@ pub const ConditionList = ListExtractor(.condition_list, Token(.@"("), Statement
 
 pub const Expression = Lazy("ExpressionUnion");
 
+/// Argument of a function call (not a function declaration)
 pub const Argument = Extractor(.argument, struct {
     expression: Expression,
 });
@@ -344,17 +362,18 @@ pub const ExpressionUnion = union(enum) {
     pub const match = extractor.match;
     pub const tryExtract = extractor.extractor.tryExtract;
 
-    identifier: Token(.identifier),
-    number: Token(.number),
     array: ArraySpecifier(Selectable),
+    assignment: Assignment,
+    call: Call,
+    conditional: ConditionalExpression,
+    identifier: Token(.identifier),
     infix: InfixExpression,
+    number: Token(.number),
+    parenthized: Parenthized,
     postfix: PostfixExpression,
     prefix: PrefixExpression,
-    assignment: Assignment,
     selection: Selection,
-    call: Call,
     sequence: Sequence,
-    parenthized: Parenthized,
 };
 
 pub const Sequence = ListExtractor(.expression_sequence, Token(.@"("), Expression, Token(.@")"));
@@ -417,7 +436,7 @@ fn TokenSetToSyntax(comptime set: std.EnumSet(parse.Tag)) type {
         } }),
     } });
 
-    return UnionExtractorMixin(u);
+    return UnionExtractorWrapper(u);
 }
 
 pub const Selection = Extractor(.selection, struct {
@@ -450,9 +469,11 @@ pub fn Token(comptime tag: Tag) type {
 
 pub fn Extractor(comptime expected_tag: Tag, comptime T: type) type {
     const fields = std.meta.fields(T);
-    const FieldEnum = std.meta.FieldEnum(T);
 
     return struct {
+        pub const FieldEnum = std.meta.FieldEnum(T);
+        pub const Type = T;
+
         const extractor = ExtractorMixin(@This());
         pub const tryExtract = extractor.tryExtract;
 
@@ -664,6 +685,68 @@ pub fn UnionExtractorMixin(comptime Self: type) type {
         pub fn getNode(self: Self) u32 {
             if (fields.len == 0) return undefined;
             switch (self) {
+                inline else => |value| {
+                    if (@hasField(@TypeOf(value), "node")) return value.node;
+                    return value.node();
+                },
+            }
+        }
+    };
+}
+
+pub fn UnionExtractorWrapper(comptime Self: type) type {
+    const fields = std.meta.fields(Self);
+
+    return struct {
+        pub const extractor = ExtractorMixin(Self);
+
+        inner: Self,
+
+        const MatchUnion = @Type(.{
+            .@"union" = .{
+                .layout = .auto,
+                .fields = blk: {
+                    var match_fields: [fields.len]std.builtin.Type.UnionField = undefined;
+
+                    for (&match_fields, fields) |*match_field, field| {
+                        match_field.* = .{
+                            .name = field.name,
+                            .type = MatchResult(field.type),
+                            .alignment = 0,
+                        };
+                    }
+
+                    break :blk &match_fields;
+                },
+                .tag_type = std.meta.Tag(Self),
+                .decls = &.{},
+            },
+        });
+
+        pub fn match(tree: Tree, node: u32) ?MatchUnion {
+            inline for (fields) |field| {
+                if (field.type.match(tree, node)) |value| {
+                    return @unionInit(MatchUnion, field.name, value);
+                }
+            }
+            return null;
+        }
+
+        pub fn extract(tree: Tree, node: u32, result: MatchUnion) @This() {
+            if (fields.len == 0) return undefined;
+
+            switch (std.meta.activeTag(result)) {
+                inline else => |res| {
+                    const name = @tagName(res);
+                    const Inner = @TypeOf(@field(@as(Self, undefined), name));
+                    return .{ .inner = @unionInit(Self, name, Inner.extract(tree, node, @field(result, name))) };
+                },
+            }
+        }
+
+        pub fn getNode(self: @This()) u32 {
+            if (fields.len == 0) return undefined;
+            switch (self.inner) {
                 inline else => |value| {
                     if (@hasField(@TypeOf(value), "node")) return value.node;
                     return value.node();

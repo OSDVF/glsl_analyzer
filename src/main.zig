@@ -13,7 +13,6 @@ const cli = @import("cli.zig");
 const analysis = @import("analysis.zig");
 const parse = @import("parse.zig");
 const websocket = if (build_options.has_websocket) @import("websocket");
-const net = std.net;
 
 pub const std_options: std.Options = .{
     .log_level = .debug,
@@ -461,18 +460,7 @@ pub const State = struct {
     }
 };
 
-const LineStart = struct {
-    /// The utf-8 byte offset.
-    utf8: u32,
-    /// The utf-16 byte offset.
-    utf16: u32,
-};
 
-const Diagnostic = struct {
-    message: ?[]const u8 = null,
-    /// If the message has been allocated, this is `false`, otherwise `true`.
-    static: bool = true,
-};
 
 pub const Dispatch = struct {
     pub const methods = [_][]const u8{

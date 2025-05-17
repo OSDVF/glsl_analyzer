@@ -7,7 +7,7 @@ pub const ParseOptions = struct {
     ignored: ?*std.ArrayList(Span) = null,
     diagnostics: ?*std.ArrayList(Diagnostic) = null,
     /// A map of function names to indexes to nodes in the tree where they are called.
-    calls: ?*std.StringHashMap(std.ArrayList(u32)) = null,
+    calls: ?*std.StringHashMapUnmanaged(std.AutoArrayHashMapUnmanaged(u32, void)) = null,
 };
 
 pub fn parse(
@@ -465,12 +465,19 @@ pub const Parser = struct {
         return tree;
     }
 
-    fn deferError(self: *@This(), value: anytype) @typeInfo(@TypeOf(value)).error_union.payload {
+    fn VoidOrNull(comptime T: type) type {
+        return if (T == void or @typeInfo(T).error_union.payload == void) void else ?@typeInfo(T).error_union.payload;
+    }
+
+    fn deferError(self: *@This(), value: anytype) VoidOrNull(@TypeOf(value)) {
         if (value) |success| {
             return success;
         } else |err| {
             if (self.deferred_error == null) {
                 self.deferred_error = err;
+            }
+            if (VoidOrNull(@TypeOf(value)) != void) {
+                return null;
             }
         }
     }
@@ -1121,7 +1128,7 @@ fn unaryExpressionOpt(p: *Parser) bool {
     return has_operator or has_expression;
 }
 
-const postfix_operators = TokenSet.initMany(&.{
+pub const postfix_operators = TokenSet.initMany(&.{
     .@"[",
     .@"(",
     .@".",
@@ -1162,11 +1169,11 @@ fn postfixExpressionOpt(p: *Parser) bool {
                     const call_node = p.stack.get(p.stack.len - 1);
                     const fn_name = p.tree.nodeSpan(call_node.span.start).text(p.tokenizer.source);
                     if (calls.getPtr(fn_name)) |the_func_calls| {
-                        p.deferError(the_func_calls.append(@intCast(p.tree.nodes.len))); // The next node will be the .call node
+                        _ = p.deferError(the_func_calls.getOrPut(p.allocator, @intCast(p.tree.nodes.len))); // The next node will be the .call node
                     } else {
-                        var new_list = std.ArrayList(u32).init(p.allocator);
-                        p.deferError(new_list.append(@intCast(p.tree.nodes.len)));
-                        p.deferError(calls.put(fn_name, new_list));
+                        var new_list = std.AutoArrayHashMapUnmanaged(u32, void).empty;
+                        _ = p.deferError(new_list.getOrPut(p.allocator, @intCast(p.tree.nodes.len)));
+                        p.deferError(calls.put(p.allocator, fn_name, new_list));
                     }
                 }
             },
